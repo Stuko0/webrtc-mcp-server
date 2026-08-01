@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+dist/
+
+# Build artifacts
+*.js.map
+*.d.ts
+*.d.ts.map
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+coverage/
+.nyc_output/
+
+# Local development
+tmp/
+*.local
+
+# Graphify output
+graphify-out/
+
+# IDE
+*.code-workspace

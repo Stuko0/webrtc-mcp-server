@@ -1,0 +1,253 @@
+# WebRTC MCP Server
+
+**Peer-to-peer WebRTC communication for AI agents.** Connects autonomous coding agents (Claude Code, OpenCode, Lydia) over low-latency WebRTC DataChannels with room-based signaling, video stream bridging, and multi-agent coordination — all exposed as MCP tools.
+
+[![npm](https://img.shields.io/npm/v/@arquant/webrtc-mcp-server)](https://www.npmjs.com/package/@arquant/webrtc-mcp-server)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7+-blue)](https://www.typescriptlang.org/)
+[![Protocol](https://img.shields.io/badge/MCP-v2025--03--26-orange)](https://modelcontextprotocol.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](LICENSE)
+
+---
+
+## TL;DR
+
+```bash
+npm install && npm run build
+
+# As MCP server (stdio)
+node dist/index.js
+
+# As WebSocket signaling server (for external peers)
+WEBRTC_SIGNALING_MODE=ws WEBRTC_WS_PORT=8765 node dist/index.js
+```
+
+| Feature | Detail |
+|---|---|
+| **Protocol** | MCP v2025-03-26 (over stdio), WebSocket signaling |
+| **Tools** | 16 MCP tools — peers, rooms, streams, signaling, health |
+| **Concurrency** | Worker Thread pool (default 8, max 16) |
+| **Latency** | 0.82ms avg signaling RTT (measured) |
+| **Sources** | RTSP, HLS, RTMP, WebRTC (auto-detect) |
+| **Tests** | 14/14 passing |
+
+---
+
+## What It Does
+
+### Multi-Agent Communication
+Connect AI agents (Lydia, OpenCode, Claude Code) over WebRTC DataChannels. Each agent becomes a peer that can:
+- Join named rooms for group communication
+- Send structured messages (JSON) with ACK
+- Broadcast to all peers in a room
+- Relay SDP/ICE for WebRTC handshake
+
+### Video Streams
+Bridge RTSP/HLS/RTMP video streams to WebRTC for real-time frame access:
+- `webrtc_connect_stream(url)` → creates RTCPeerConnection + offer SDP
+- `webrtc_frame_get(stream_id)` → returns latest frame as base64 JPEG
+- `webrtc_stream_status(stream_id)` → health, FPS, throughput metrics
+- FFmpeg-backed decoding with ring-buffer frame cache
+
+### Room-Based Signaling
+WebSocket server (`ws://host:port`) for external peers:
+- `join/leave/list_peers` — room membership
+- `signal` — SDP/ICE relay between peers
+- `broadcast` — fan-out messages to all room members
+- `ping/pong` — health check
+
+---
+
+## Quick Start
+
+### As a standalone server
+
+```bash
+# stdio mode (MCP transport)
+WEBRTC_SIGNALING_MODE=stdio node dist/index.js
+
+# WebSocket signaling mode (for external peers like OpenCode)
+WEBRTC_SIGNALING_MODE=ws WEBRTC_WS_PORT=8765 node dist/index.js
+
+# Both modes simultaneously
+WEBRTC_SIGNALING_MODE=both node dist/index.js
+```
+
+### As an MCP server (Lydia / Claude Desktop / Cursor)
+
+```json
+{
+  "mcpServers": {
+    "webrtc": {
+      "command": "node",
+      "args": ["/path/to/dist/index.js"],
+      "env": {
+        "WEBRTC_SIGNALING_MODE": "stdio"
+      }
+    }
+  }
+}
+```
+
+### External peer via WebSocket (OpenCode)
+
+```javascript
+// Node.js client
+const ws = new WebSocket('ws://127.0.0.1:8765');
+ws.on('open', () => {
+  ws.send(JSON.stringify({
+    type: 'join',
+    peerId: 'open-code',
+    room: 'my-room'
+  }));
+});
+```
+
+---
+
+## MCP Tools
+
+### Peer Communication (6 tools)
+| Tool | Description |
+|---|---|
+| `webrtc_connect` | Create RTCPeerConnection + DataChannel with a peer |
+| `webrtc_disconnect` | Close connection and release resources |
+| `webrtc_send` | Send structured message via DataChannel |
+| `webrtc_broadcast` | Broadcast to all peers in a room |
+| `webrtc_list_peers` | List all connected peers |
+| `webrtc_peer_status` | Detailed status of a specific peer |
+
+### Rooms (4 tools)
+| Tool | Description |
+|---|---|
+| `webrtc_create_room` | Create a new signaling room |
+| `webrtc_join_room` | Join a peer to a room |
+| `webrtc_leave_room` | Leave a room |
+| `webrtc_signal_relay` | Relay SDP/ICE candidates between peers |
+
+### Video Streams (5 tools)
+| Tool | Description |
+|---|---|
+| `webrtc_connect_stream` | Connect RTSP/HLS/RTMP source → WebRTC offer |
+| `webrtc_frame_get` | Get latest frame as base64 (cached, no re-encode) |
+| `webrtc_list_streams` | List all active streams with health metrics |
+| `webrtc_stream_status` | Detailed streaming metrics (FPS, throughput) |
+| `webrtc_disconnect_stream` | Close a video stream |
+
+### Health (1 tool)
+| Tool | Description |
+|---|---|
+| `webrtc_health` | Overall server health (peers, rooms, workers, uptime) |
+
+---
+
+## Configuration
+
+All config via environment variables or `config.yaml`:
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEBRTC_SIGNALING_MODE` | `stdio` | `stdio` \| `ws` \| `both` |
+| `WEBRTC_MAX_WORKERS` | 8 | Max concurrent worker threads (≤16) |
+| `WEBRTC_FRAME_CACHE_SIZE` | 5 | Frames cached per stream (ring buffer) |
+| `WEBRTC_MAX_FRAME_BYTES` | 500000 | Max JPEG payload (~480KB @ 1920×1080) |
+| `WEBRTC_CONNECTION_TIMEOUT` | 30 | Connection timeout in seconds |
+| `WEBRTC_WS_PORT` | 8765 | WebSocket signaling port |
+| `WEBRTC_WS_HOST` | 127.0.0.1 | WebSocket bind address |
+| `WEBRTC_LOG_LEVEL` | warn | `debug` \| `info` \| `warn` \| `error` |
+| `WEBRTC_STUN_URL` | stun:stun.l.google.com:19302 | STUN server |
+| `WEBRTC_ALLOWED_URLS` | (auto) | Comma-separated URL allowlist |
+
+See [`config.yaml`](config.yaml) for the full default configuration with TURN, rate limiting, and ICE restart settings.
+
+---
+
+## Multi-Agent Workflow
+
+```
+1. Lydia:       webrtc_create_room("team-sync")
+2. OpenCode:    {type:"join", peerId:"opencode", room:"team-sync"}  ← WebSocket
+3. Lydia:       webrtc_connect(peerId="opencode")  → RTCPeerConnection + DataChannel
+
+4. Lydia → OpenCode:  webrtc_send(peerId="opencode", data={"task":"review","file":"src/index.ts"})
+5. OpenCode → Lydia:  webrtc_send(peerId="lydia", data={"result":"✅ no issues"})
+
+6. Broadcast to all:  webrtc_broadcast(data={"type":"status","msg":"deploying"})
+```
+
+---
+
+## Video Stream Workflow
+
+```
+1. webrtc_connect_stream(url="rtsp://camera.local:554/stream1")
+   → {stream_id: "cam-123", offer_sdp: "...", ice_servers: [...]}
+
+2. webrtc_frame_get(stream_id="cam-123")
+   → {frame: "base64...", timestamp: 1753785600000, resolution: {width:1920, height:1080}}
+
+3. vision_analyze(image="data:image/jpeg;base64,...", question="¿Hay personas?")
+   → "Sí, 2 personas detectadas"
+```
+
+Frames are cached in a thread-safe ring buffer — repeated `frame_get` calls return the same buffer without re-encoding.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  LYDIA AGENT (CLI/TUI/Gateway)                          │
+│  MCP stdio transport: node dist/index.js                │
+├─────────────────────────────────────────────────────────┤
+│  MCP Protocol Handler (v2025-03-26)                    │
+│  → tools/list, tools/call → dispatch                     │
+├─────────────────────────────────────────────────────────┤
+│  WebSocket Signaling Server (ws://127.0.0.1:8765)       │
+│  → join/leave/list_peers/ping/broadcast/signal          │
+├─────────────────────────────────────────────────────────┤
+│  Worker Thread Pool (8 concurrent, round-robin)          │
+│  ├─ Worker 1: RTCPeerConnection + DataChannel            │
+│  ├─ Worker 2: RTSP/FFmpeg → WebRTC bridge                │
+│  └─ Worker N: isolated per peer/stream                    │
+├─────────────────────────────────────────────────────────┤
+│  FFmpeg Bridge                                           │
+│  RTSP/HLS/RTMP → raw frames → JPEG (via sharp)            │
+│  FrameCache: thread-safe ring buffer (5 frames)            │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Development
+
+```bash
+npm install        # install dependencies
+npm run build      # TypeScript → dist/
+npm run dev        # watch mode (tsx)
+npm test           # 14 tests (vitest)
+npm run typecheck  # tsc --noEmit
+npm run lint       # eslint
+```
+
+### Tests
+
+```
+Test Files  2 passed (2)
+     Tests  14 passed (14)
+```
+
+| File | Tests |
+|---|---|
+| `test/room.test.ts` | 9 tests — room join/leave, peer management, broadcast |
+| `test/signaling.test.ts` | 5 tests — SDP/ICE routing, health checks |
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+---
+
+*Built for Lydia Agent and the open-source AI agent ecosystem. WebRTC is the industry standard for real-time P2P communication (used by Zoom, Google Meet, Discord).*

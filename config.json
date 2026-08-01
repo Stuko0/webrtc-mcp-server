@@ -1,0 +1,20 @@
+{
+  "signaling": {
+    "mode": "stdio",
+    "wsPort": 8765,
+    "wsHost": "127.0.0.1"
+  },
+  "maxWorkers": 8,
+  "connectionTimeoutMs": 30000,
+  "dataChannel": {
+    "maxMessageSize": 262144
+  },
+  "limits": {
+    "maxPeersPerWorker": 16,
+    "maxRooms": 100,
+    "maxPeersPerRoom": 32
+  },
+  "logging": {
+    "level": "info"
+  }
+}

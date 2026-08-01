@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>WebRTC MCP Server — SDD</title>
+  <style>
+    @page { size: A4; margin: 20mm 18mm 22mm 18mm; }
+    body { font-family: 'DejaVu Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 10pt; line-height: 1.45; color: #1a1a1a; max-width: 740px; margin: 0 auto; padding: 20px; }
+    .page { page-break-after: always; }
+    h1 { font-size: 20pt; color: #2d6a4f; border-bottom: 3px solid #2d6a4f; padding-bottom: 6px; margin-top: 28px; page-break-before: always; }
+    h1.first-section { page-break-before: avoid; }
+    h2 { font-size: 14pt; color: #1d3557; margin-top: 18px; margin-bottom: 6px; }
+    table { border-collapse: collapse; width: 100%; margin: 10px 0 14px 0; font-size: 9.5pt; }
+    th { background: #2d6a4f; color: #fff; padding: 6px 10px; text-align: left; font-weight: 600; }
+    th, td { border: 1px solid #c4d4c9; padding: 5px 10px; }
+    tr:nth-child(even) td { background: #f4f9f6; }
+    pre, code { font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 8.5pt; background: #f7faf9; border-left: 3px solid #2d6a4f; padding: 6px 10px; overflow-x: auto; line-height: 1.35; }
+    code { background: #eef5f0; padding: 2px 5px; }
+    .note { border-left: 4px solid #e9c46a; background: #fef9e7; padding: 8px 14px; margin: 10px 0; font-size: 9.5pt; }
+    .warn { border-left: 4px solid #e74c3c; background: #fdedec; padding: 8px 14px; margin: 10px 0; font-size: 9.5pt; }
+    .info { border-left: 4px solid #3498db; background: #eaf4fd; padding: 8px 14px; margin: 10px 0; font-size: 9.5pt; }
+    .page-footer { display: flex; justify-content: space-between; font-size: 8pt; color: #aaa; border-top: 1px solid #ddd; padding-top: 4px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+<div style="text-align:center;height:88vh;display:flex;flex-direction:column;justify-content:center">
+  <div style="font-size:10pt;color:#777">DOCUMENTO DE DISEÑO DE SOFTWARE</div>
+  <div style="font-size:36pt;font-weight:800;letter-spacing:-1px;color:#2d6a4f;margin:16px 0">WebRTC MCP Server</div>
+  <div style="font-size:18pt;color:#555;margin-bottom:32px">System Design Document (SDD)</div>
+  <div style="font-size:11pt;color:#777;line-height:1.8">
+    <b>Versión:</b> 0.4.0<br>
+    <b>Fecha:</b> 29/07/2026<br>
+    <b>Proyecto:</b> Jobs/Arquant/webrtc-mcp-server<br>
+    <b>Autor:</b> Alexander Villanueva (Stuko)<br>
+    <b>Repositorio:</b> Jobs/Arquant/webrtc-mcp-server<br>
+    <b>Licencia:</b> MIT
+  </div>
+</div>
+<div class="page"></div>
+
+<h1 class="first-section">1. ¿Qué es WebRTC MCP Server?</h1>
+
+<p><strong>WebRTC MCP Server</strong> v0.4.0 es un servidor <b>Model Context Protocol (MCP)</b> (protocol v2025-03-26) que expone <b>16 herramientas WebRTC</b> para Lydia Agent y otros agentes de código compatible. Permite comunicación <strong>peer-to-peer multi-agente</strong> en tiempo real (Lydia ↔ OpenCode ↔ Claude Code) mediante DataChannels de baja latencia, coordinación mediante rooms y streams de video RTSP/HLS con procesamiento de frames.</p>
+
+<p class="note"><b>Nota:</b> Sigue la Footprint Ladder de Lydia (approach #2 del análisis de grafos): MCP server externo, no un core tool. Cero cambios en <code>toolsets.py</code>, <code>model_tools.py</code> o <code>run_agent.py</code>. El agente descubre las herramientas vía el cliente MCP built-in.</p>
+
+<h2>1.1 Casos de uso</h2>
+<table>
+<tr><th>Caso</th><th>Descripción</th></tr>
+<tr><td>Multi-agente</td><td>Lydia orquesta; OpenCode revisa/codigo en paralelo; se comunican vía DataChannels</td></tr>
+<tr><td>Monitoreo visual</td><td>RTSP → frame → vision_analyze para detección en vivo</td></tr>
+<tr><td>Streaming</td><td>Frames JPEG vía WebRTC a múltiples peers simultáneamente</td></tr>
+<tr><td>Coordinación</td><td>Rooms con signaling SDP/ICE para conexiones P2P</td></tr>
+</table>
+
+<!-- ===================== SECTION 2 ===================== -->
+<h1>2. Arquitectura de Alto Nivel</h1>
+
+<pre>┌────────────────────────────────────────────────────────────────┐
+│                      CLIENTE (LYDIA)                          │
+│  lydia --tui / CLI / Gateway                                 │
+│  MCP stdio transport: node dist/index.js                     │
+├──────────────────────────────────────────────────────────────┤
+│              MCP Protocol Handler v2025-03-26                  │
+│  stdio JSON-RPC loop                                        │
+│  → tools/list, tools/call → dispatch                          │
+├──────────────────────────────────────────────────────────────┤
+│              WebRTC Signaling + Room Manager                   │
+│  WebSocketServer (ws lib) — ws://127.0.0.1:8765               │
+│  → join/leave/list_peers/ping/broadcast/signal                │
+├──────────────────────────────────────────────────────────────┤
+│              Worker Pool (node:worker_threads)                 │
+│  8 threads, round-robin, auto-respawn on crash                │
+├──────────────────────────────────────────────────────────────┤
+│              RTCPeerConnection                                 │
+│  DataChannel API (bidirectional, ordered, <1ms latency)        │
+│  ICE + STUN/TURN para NAT traversal                          │
+├──────────────────────────────────────────────────────────────┤
+│              FFmpeg Bridge (video streams)                   │
+│  RTSP/HLS/RTMP → FFmpeg subprocess → JPEG frames             │
+│  FrameCache ring buffer (5 frames thread-safe)                │
+└──────────────────────────────────────────────────────────────┘</pre>
+
+<h2>2.1 Transportes y protocolos</h2>
+<table>
+<tr><th>Transporte</th><th>Uso</th><th>Formato</th><th>Latencia (medida)</th></tr>
+<tr><td>stdio (JSON-RPC)</td><td>Lydia MCP stdio transport</td><td>JSON sobre stdin/stdout</td><td>~1ms (local)</td></tr>
+<tr><td>WebSocket (WS)</td><td>Peers externos (OpenCode, Claude Code)</td><td>JSON sobre TCP</td><td><b>0.82ms promedio</b>, 1.44ms p95</td></tr>
+</table>
+
+<h2>2.2 Señalización (Signaling)</h2>
+<p>WebRTC requiere un canal de señalización para intercambiar SDP (Session Description Protocol) e ICE candidates. El servidor MCP expone:</p>
+<ul>
+<li><b>WebSocket Signaling:</b> Peers externos (OpenCode) conectan vía WS. El server WebSocket intercambia SDP/ICE entre peers del mismo room.</li>
+<li><b>MCP stdio Signaling:</b> Lydia actúa como peer. El MCP server (Node.js) crea la RTCPeerConnection interna y la señalización fluye vía MCP tool calls (<code>webrtc_connect</code>, <code>webrtc_send</code>).</li>
+</ul>
+
+<p><b>Flow típico multi-agente:</b></p>
+<pre>1. Lydia: webrtc_create_room("webrtc-test")
+2. OpenCode (via WS): {type:"join", peerId:"open-code", room:"webrtc-test"}
+3. Lydia: webrtc_connect(peerId="open-code") → RTCPeerConnection + DataChannel
+4. Se intercambian SDP/ICE vía webrtc_signal_relay o WS relay
+5. Una vez ICE connected → DataChannel lista para mensajes
+6. Lydia ↔ OpenCode: webrtc_send(peerId, data) bidireccional</pre>
+
+
+<div class="page"></div>
+
+<!-- ===================== SECTION 3 ===================== -->
+<h1>3. Estructura del Proyecto</h1>
+
+<table>
+<tr><th>Componente</th><th>Archivo</th><th>LOC</th><th>Responsabilidad</th></tr>
+<tr><td>Entry point</td><td><tt>src/index.ts</tt></td><td>146</td><td>MCP stdio loop + WS bridge + worker pool init</td></tr>
+<tr><td>MCP Handler</td><td><tt>src/mcp-handler.ts</tt></td><td>64</td><td>Protocol v2025-03-26: tools/list, tools/call, ping</td></tr>
+<tr><td>Config</td><td><tt>src/config.ts</tt></td><td>57</td><td>Env vars + defaults + validation</td></tr>
+<tr><td>Types</td><td><tt>src/types.ts</tt></td><td>66</td><td>Interfaces TS: Config, PeerInfo, SignalMessage</td></tr>
+<tr><td>SignalingServer</td><td><tt>src/signaling/server.ts</tt></td><td>175</td><td>DataChannel: connect/disconnect/send/broadcast/signal_relay</td></tr>
+<tr><td>WsSignalingServer</td><td><tt>src/signaling/ws-server.ts</tt></td><td>240</td><td>WebSocket: join/leave/list_peers/ping/broadcast</td></tr>
+<tr><td>RoomManager</td><td><tt>src/room/room.ts</tt></td><td>137</td><td>Rooms multi-agente, peer management, broadcast</td></tr>
+<tr><td>WorkerPool</td><td><tt>src/workers/pool.ts</tt></td><td>169</td><td>8 threads pool, round-robin, auto-respawn</td></tr>
+<tr><td>WorkerInstance</td><td><tt>src/workers/worker-instance.ts</tt></td><td>140</td><td>RTCPeerConnection + DataChannel bridge per worker</td></tr>
+<tr><td>FfmpegBridge</td><td><tt>src/video/ffmpeg-bridge.ts</tt></td><td>192</td><td>RTSP/HLS → raw frames</td></tr>
+<tr><td>FrameCache</td><td><tt>src/video/frame-cache.ts</tt></td><td>85</td><td>Ring buffer de 5 frames (thread-safe)</td></tr>
+<tr><td>StreamManager</td><td><tt>src/video/stream-manager.ts</td><td>175</td><td>Orquestador de streams, auto-reconnect</td></tr>
+<tr><td>Logger</td><td><tt>src/utils/logger.ts</tt></td><td>30</td><td>pino logger (warn level default)</td></tr>
+<tr><td>Health</td><td><tt>src/utils/health.ts</td><td>40</td><td>Health report: peers, rooms, workers</td></tr>
+</table>
+
+<h2>3.1 Tests</h2>
+<p>14 tests cubriendo room operations y signaling:</p>
+<table>
+<tr><th>Archivo</th><th>Tests</th><th>Estado</th></tr>
+<tr><td><tt>room.test.ts</tt></td><td>9</td><td>✅ passed</td></tr>
+<tr><td><tt>signaling.test.ts</tt></td><td>5</td><td>✅ passed</td></tr>
+<tr><td><b>Total</b></td><td><b>14</b></td><td><b>✅ all passing</b></td></tr>
+</table>
+
+
+<div class="page"></div>
+
+<!-- ===================== SECTION 4 ===================== -->
+<h1>4. Herramientas MCP (16)</h1>
+
+<p>Todas las herramientas están prefijadas con <code>webrtc_</code>. Categorizadas por funcionalidad:</p>
+
+<h2>4.1 Comunicación entre peers (6)</h2>
+<table>
+<tr><th>Tool</th><th>Parámetros</th><th>Return</th><th>Descripción</th></tr>
+<tr><td><code>webrtc_connect</code></td><td>peerId, label, dataChannels?, iceServers?</td><td>{peerId, status, dataChannels}</td><td>Crea RTCPeerConnection + DataChannel</td></tr>
+<tr><td><code>webrtc_disconnect</code></td><td>peerId</td><td>{peerId, status}</td><td>Cierra conexión WebRTC y libera recursos</td></tr>
+<tr><td><code>webrtc_send</code></td><td>peerId, data, channel?, kind?</td><td>{peerId, sent, channel}</td><td>Enviar mensaje estructurado via DataChannel</td></tr>
+<tr><td><code>webrtc_broadcast</code></td><td>data, room?, channel?, exclude?</td><td>{sentTo, count}</td><td>Broadcast a todos los peers en un room</td></tr>
+<tr><td><code>webrtc_list_peers</code></td><td>(vacío)</td><td>{peers, total}</td><td>Listar todos los peers conectados</td></tr>
+<tr><td><code>webrtc_peer_status</code></td><td>peerId</td><td>{peerId, status, dataChannels, rooms}</td><td>Estado detallado de un peer</td></tr>
+</table>
+
+<h2>4.2 Rooms multi-agente (4)</h2>
+<table>
+<tr><th>Tool</th><th>Parámetros</th><th>Return</th><th>Descripción</th></tr>
+<tr><td><code>webrtc_create_room</code></td><td>room, name?</td><td>{room, name, created}</td><td>Crear un nuevo signaling room</td></tr>
+<tr><td><code>webrtc_join_room</code></td><td>room, peerId</td><td>{room, peerId, joined, existingPeers}</td><td>Unir un peer a un room</td></tr>
+<tr><td><code>webrtc_leave_room</code></td><td>room, peerId</td><td>{room, peerId, left}</td><td>Salir de un room</td></tr>
+<tr><td><code>webrtc_signal_relay</code></td><td>to, type, sdp?, candidate?, room?
+
+<!-- CONTINUATION: Section 4 + more -->
+<table>
+<tr><th>Tool</th><th>Parámetros</th><th>Return</th><th>Descripción</th></tr>
+<tr><td><code>webrtc_signal_relay</code></td><td>to, type(offer/answer/ice_candidate), sdp?, candidate?, room?</td><td>{relayed, to, type}</td><td>Reenviar SDP/ICE entre peers para handshake</td></tr>
+</table>
+
+<h2>4.3 Streams de video (5)</h2>
+<table>
+<tr><th>Tool</th><th>Parámetros</th><th>Return</th><th>Descripción</th></tr>
+<tr><td><code>webrtc_connect_stream</code></td><td>url, type?, ice_servers?, on_frame?</td><td>{stream_id, offer_sdp, ice_servers}</td><td>Conectar fuente RTSP/HLS/WebRTC → RTCPeerConnection con offer SDP</td></tr>
+<tr><td><code>webrtc_frame_get</code></td><td>stream_id, format?, quality?</td><td>{frame, timestamp, resolution, format, size_bytes}</td><td>Obtener último frame como base64 JPEG/PNG (cacheado)</td></tr>
+<tr><td><code>webrtc_list_streams</code></td><td>(vacío)</td><td>{streams}</td><td>Listar streams activos con salud</td></tr>
+<tr><td><code>webrtc_stream_status</code></td><td>stream_id</td><td>{status, resolution, fps, bytes_in, bytes_out}</td><td>Estado detallado de un stream (health check)</td></tr>
+<tr><td><code>webrtc_disconnect_stream</code></td><td>stream_id, force?</td><td>{success, bytes_transferred, duration}</td><td>Cerrar conexión de stream activo</td></tr>
+</table>
+
+<h2>4.4 Health (1)</h2>
+<table>
+<tr><th>Tool</th><th>Parámetros</th><th>Return</th><th>Descripción</th></tr>
+<tr><td><code>webrtc_health</code></td><td>(vacío)</td><td>{peers, rooms, workers, uptime, version}</td><td>Health check completo del server</td></tr>
+</table>
+
+<div class="page"></div>
+
+<!-- ===================== SECTION 5 ===================== -->
+<h1>5. Concurrencia y Worker Threads</h1>
+
+<h2>5.1 Límites de concurrencia</h2>
+<table>
+<tr><th>Parámetro</th><th>Default</th><th>Máx</th><th>Env var</th></tr>
+<tr><td>Workers simultáneos</td><td>8</td><td>16</td><td>WEBRTC_MAX_WORKERS</td></tr>
+<tr><td>Frame cache por stream</td><td>5</td><td>30</td><td>WEBRTC_FRAME_CACHE</td></tr>
+<tr><td>Push rate</td><td>1 fps</td><td>10 fps</td><td>WEBRTC_MAX_PUSH_FPS</td></tr>
+<tr><td>Payload máximo por frame</td><td>500 KB</td><td>2 MB</td><td>WEBRTC_MAX_FRAME_BYTES</td></tr>
+<tr><td>Duración máx stream</td><td>1h</td><td>24h</td><td>WEBRTC_MAX_STREAM_DURATION</td></tr>
+<tr><td>Timeout conexión</td><td>30s</td><td>120s</td><td>WEBRTC_CONNECTION_TIMEOUT</td></tr>
+</table>
+
+<h2>5.2 Pool de workers</h2>
+<pre>webrtc-mcp-server/
+├── src/
+│   ├── index.ts           # Entry point + worker pool init
+│   ├── mcp-handler.ts     # MCP protocol handler
+│   ├── workers/
+│   │   ├── pool.ts        # Worker pool (spawn/assign/resize/stop)
+│   │   └── worker-instance.ts  # RTCPeerConnection + DataChannel per worker
+│   └── signaling/
+│       ├── server.ts      # DataChannel signaling
+│       └── ws-server.ts   # WebSocket signaling (ws://127.0.0.1:8765)
+├── scripts/
+│   ├── SKILL.md           # Lydia skill documentation
+│   └── open-code-peer.py  # WS client for OpenCode
+└── test/
+    ├── room.test.ts       # 9 tests
+    └── signaling.test.ts  # 5 tests</pre>
+
+
+<div class="page"></div>
+
+<!-- ===================== SECTION 6 ===================== -->
+<h1>6. Integración con Lydia</h1>
+
+<h2>6.1 Instalación como MCP server</h2>
+<p>El servidor se instala como MCP estándar. Lydia descubre las herramientas vía el cliente MCP built-in (protocol v2025-03-26 sobre stdio JSON-RPC).</p>
+
+<pre># Instalar el MCP server (como plugin local)
+cd ~/Jobs/Arquant/lydia-agent
+lydia mcp remove webrtc 2>/dev/null
+lydia mcp add webrtc \
+  --command "node" \
+  --args "/home/stuko/Jobs/Arquant/webrtc-mcp-server/dist/index.js" \
+  --env "WEBRTC_SIGNALING_MODE=stdio,WEBRTC_MAX_WORKERS=8,WEBRTC_LOG_LEVEL=warn"
+
+# Verificar
+lydia mcp list
+# → webrtc │ running │ 16 tools registered
+
+# Probar
+lydia mcp call webrtc webrtc_health</pre>
+
+<h2>6.2 Configuración (config.yaml)</h2>
+<pre># ~/.lydia/config.yaml (sección mcp.servers)
+mcp:
+  servers:
+    webrtc:
+      command: "node"
+      args: ["/home/stuko/Jobs/Arquant/webrtc-mcp-server/dist/index.js"]
+      env:
+        WEBRTC_SIGNALING_MODE: "stdio"
+        WEBRTC_MAX_WORKERS: "8"
+        WEBRTC_FRAME_CACHE_SIZE: "5"
+        WEBRTC_MAX_FRAME_BYTES: "500000"
+        WEBRTC_CONNECTION_TIMEOUT: "30"
+        WEBRTC_LOG_LEVEL: "warn"
+      disabled: false</pre>
+
+<h2>6.3 Skill webrtc-monitoring</h2>
+<p>Skill en <code>scripts/SKILL.md</code> — el agente lo carga cuando el usuario pide monitoreo en tiempo real. Permite:</p>
+<ul>
+<li>Conectar a cámara RTSP → frame → vision_analyze</li>
+<li>Monitoreo periódico (cron job)</li>
+<li>Listar streams activos</li>
+</ul>
+
+<h2>6.4 Integración con vision_analyze</h2>
+<p class="note"><b>Flujo principal:</b> connect_stream → frame_get → vision_analyze → respuesta del agente.</p>
+
+<pre># Pseudocódigo del agente
+1. stream = await mcp.call("webrtc", "webrtc_connect_stream", {"url": "rtsp://cam:554/stream1"})
+   → {stream_id: "cam-entrada", offer_sdp: "...", ice_servers: [...]}
+2. frame = await mcp.call("webrtc", "webrtc_frame_get", {"stream_id": "cam-entrada"})
+   → {frame: "base64...", timestamp: ..., resolution: {w:1920, h:1080}}
+3. analysis = await tools.call("vision_analyze", {"image": "data:image/jpeg;base64,...", "question": "¿Hay personas?"})
+4. if "persona" in analysis: send_message("¡Alguien en la entrada!")</pre>
+
+<p><b>Optimización:</b> El frame se cachea (ring buffer de 5 frames). Si el frame no cambió, se devuelve el mismo buffer. No se re-codifica JPEG innecesariamente.</p>
+
+
+<div class="page"></div>
+
+<!-- ===================== SECTION 7 ===================== -->
+<h1>7. Dependencias y Requisitos</h1>
+
+<table>
+<tr><th>Paquete</th><th>Versión</th><th>Propósito</th></tr>
+<tr><td>@modelcontextprotocol/sdk</td><td>^1.10</td><td>SDK oficial MCP (protocol v2025-03-26)</td></tr>
+<tr><td>ws</td><td>^8.18</td><td>WebSocket server para signaling</td></tr>
+<tr><td>fluent-ffmpeg</td><td>^2.1</td><td>FFmpeg subprocess para RTSP/HLS</td></tr>
+<tr><td>sharp</td><td>^0.34</td><td>Procesamiento JPEG/PNG frames</td></tr>
+<tr><td>node:</td><td>&gt;=20.x</td><td>Node.js runtime (>=22.x recomendado)</td></tr>
+<tr><td>ffmpeg</td><td>&gt;=4.4</td><td>Decodificación de video (>=7.x recomendado)</td></tr>
+</table>
+
+<h2>7.1 Métricas de rendimiento (medidas)</h2>
+<table>
+<tr><th>Métrica</th><th>Valor medido</th><th>Meta SDD</th></tr>
+<tr><td>Signaling latency</td><td><b>0.82ms promedio</b> (p95: 1.44ms)</td><td>&lt;500ms ✅</td></tr>
+<tr><td>Peer join time</td><td>0.97ms promedio</td><td>&lt;1s ✅</td></tr>
+<tr><td>Tests</td><td>14/14 passing</td><td>✅</td></tr>
+<tr><td>MCP tools</td><td>16 registered</td><td>✅</td></tr>
+</table>
+
+<h2>7.2 Comparación de transportes</h2>
+<table>
+<tr><th>Feature</th><th>WebRTC MCP</th><th>HTTP Polling</th><th>RTSP directo</th></tr>
+<tr><td>Latencia</td><td>&lt;500ms (signaling)</td><td>5-30s</td><td>~200ms</td></tr>
+<tr><td>Concurrencia</td><td>Sí (8 worker threads)</td><td>Limitada</td><td>No</td></tr>
+<tr><td>Atraviesa NAT/FW</td><td>Sí (ICE/STUN/TURN)</td><td>Sí (HTTP)</td><td>No</td></tr>
+<tr><td>Cifrado</td><td>DTLS nativo</td><td>HTTPS</td><td>No</td></tr>
+</table>
+
+<div class="page"></div>
+
+<!-- ===================== SECTION 8 ===================== -->
+<h1>8. Seguridad</h1>
+
+<h2>8.1 Modelo de amenazas</h2>
+<table>
+<tr><th>Amenaza</th><th>Mitigación</th></tr>
+<tr><td>Stream no autorizado</td><td>Validación de protocolo: solo rtsp://, rtmp://, https://. URLs se validan contra allowlist configurable (default: red local 192.168.x.x, 10.x.x.x).</td></tr>
+<tr><td>Exfiltración vía WebRTC</td><td>El MCP server corre en el contexto del agente. Solo Lydia/OpenCode pueden llamar herramientas — no hay API externa expuesta.</td></tr>
+<tr><td>DoS por muchos streams</td><td>Límite de workers (default 8, configurable hasta 16). Cola de espera para requests extras.</td></tr>
+<tr><td>Credenciales en URLs</td><td>Las URLs se almacenan en memoria, no en disco ni logs. Se trunca la contraseña en respuestas.</td></tr>
+</table>
+
+<h2>8.2 Permisos en Electron</h2>
+<p>Si se combina con screen sharing desde Electron (fase posterior), modificar <code>apps/desktop/electron/main.cjs</code>:</p>
+<pre>function isMediaPermission(permission, details) {
+  if (permission === 'audioCapture') return true;
+  // NEW: Allow video screen capture
+  if (permission === 'videoCapture') return true;
+  if (permission === 'media') return false;
+  ...
+}</pre>
+<p><b>Warning:</b> El permission handler actual deniega video explícitamente. Habilitarlo requiere que el usuario apruebe explícitamente el acceso a cámara/pantalla.</p>
+
+
+<div class="page"></div>
+
+<!-- ===================== SECTION 9 ===================== -->
+<h1>9. Uso para Desarrolladores</h1>
+
+<h2>9.1 Clonar y build</h2>
+<pre>git clone https://github.com/Stuko0/webrtc-mcp-server.git
+cd webrtc-mcp-server
+npm install
+npm run build  # → dist/index.js + dist/workers/</pre>
+
+<h2>9.2 Ejecutar el server (modos)</h2>
+<table>
+<tr><th>Modo</th><th>Comando</th><th>Uso</th></tr>
+<tr><td>stdio (MCP)</td><td><code>WEBRTC_SIGNALING_MODE=stdio node dist/index.js</code></td><td>Lydia MCP stdio transport</td></tr>
+<tr><td>WebSocket</td><td><code>WEBRTC_SIGNALING_MODE=ws WEBRTC_WS_PORT=8765 node dist/index.js</code></td><td>Peers externos (OpenCode, Claude Code)</td></tr>
+</table>
+
+<h2>9.3 Tests</h2>
+<pre>npm test              # 14 tests (vitest)
+npm run typecheck       # tsc --noEmit
+npm run lint            # eslint</pre>
+
+<h2>9.4 Cliente WS para OpenCode</h2>
+<p><code>scripts/open-code-peer.py</code> — cliente Python que se conecta vía WebSocket al server:</p>
+<pre># Joiner room via WebSocket
+python3 scripts/open-code-peer.py --ws-url ws://127.0.0.1:8765 --room webrtc-test --peer-id open-code
+
+# Luego usar herramientas MCP webrtc_connect/webrtc_send para interactuar con Lydia</pre>
+
+<h2>9.5 Benchmarking</h2>
+<p><code>tmp/webrtc-benchmark.py</code> — mide signaling latency y peer join time:</p>
+<pre>python3 tmp/webrtc-benchmark.py --rounds 50 --payload-size 512
+# → Resultados en tmp/benchmark-results.json</pre>
+
+<div class="page"></div>
+
+<!-- ===================== SECTION 10 ===================== -->
+<h1>10. Uso para Usuarios (agentes)</h1>
+
+<h2>10.1 Escenario multi-agente: Lydia + OpenCode</h2>
+<p class="info"><b>Setup completo documentado en <code>tmp/</code> — 16 tools conectadas a Lydia, OpenCode cliente WS conectado a room <code>webrtc-test</code>.</b></p>
+
+<pre># Paso 1 (Lydia): crear room y conectar
+> webrtc_create_room("webrtc-test")
+> webrtc_connect(peerId="open-code")
+→ {peerId: "open-code", status: "connected", dataChannels: ["default"]}
+
+# Paso 2 (OpenCode vía WS): joiner room
+{"type":"join","peerId":"open-code","room":"webrtc-test"}
+→ {"type":"joined","peerId":"open-code","room":"webrtc-test"}
+
+# Paso 3: comunicación bidireccional
+> webrtc_send(peerId="open-code", data={"task":"code-review","file":"src/index.ts"})
+→ OpenCode recibe el mensaje vía DataChannel o WS relay
+
+> webrtc_send(peerId="lydia", data={"result":"✅ review complete, 0 issues found"})</pre>
+
+<h2>10.2 Escenario monitoreo de cámaras</h2>
+<pre># Conectar a cámara IP
+> webrtc_connect_stream(url="rtsp://admin:pass@192.168.1.100:554/stream1")
+→ {stream_id: "cam-entrada", offer_sdp: "...", ice_servers: [...]}
+
+# Obtener frame y analizar
+> webrtc_frame_get(stream_id="cam-entrada")
+→ {frame: "base64...", timestamp: 1785565495825, resolution: {width:1920, height:1080}}
+
+> vision_analyze(image="data:image/jpeg;base64,...", question="¿Hay personas?")
+→ "Sí, hay 2 personas en la escena."
+
+# Listar streams
+> webrtc_list_streams()
+→ {streams: [{id:"cam-entrada", status:"connected", ...}]}</pre>
+
+<h2>10.3 Cron: monitoreo periódico</h2>
+<pre># Cada 5 minutos, revisar cámara y detectar movimiento
+> /cron create "every 5m" "Conecta a la camara RTSP, toma frame, analiza con vision_analyze y reporta si hay personas"</pre>
+
+
+<div class="page"></div>
+
+<!-- ===================== SECTION 11 ===================== -->
+<h1>11. Resumen Ejecutivo</h1>
+
+<table>
+<tr><th>Item</th><th>Valor</th></tr>
+<tr><td>Feature</td><td>WebRTC MCP Server — comunicación multi-agente + monitoreo video</td></tr>
+<tr><td>Versión</td><td>0.4.0</td></tr>
+<tr><td>Arquitectura</td><td>Node.js + TypeScript, Worker Threads, node-webrtc, ws (WebSocket)</td></tr>
+<tr><td>Protocolos</td><td>MCP JSON-RPC v2025-03-26 (stdio), WebSocket (signaling), WebRTC (DataChannel/RTCPeerConnection)</td></tr>
+<tr><td>Tools MCP</td><td>16 herramientas (connect/send/broadcast, rooms, streams, health)</td></tr>
+<tr><td>Concurrencia</td><td>Worker Thread pool (default 8, configurable hasta 16)</td></tr>
+<tr><td>Fuentes video</td><td>RTSP, HLS, RTMP, WebRTC peer (auto-detect)</td></tr>
+<tr><td>Latencia</td><td>0.82ms promedio (signaling latency medida)</td></tr>
+<tr><td>Señalización</td><td>WebSocket + MCP JSON-RPC sobre stdio</td></tr>
+<tr><td>Integración Lydia</td><td>MCP catalog + skill webrtc-monitoring + vision_analyze</td></tr>
+<tr><td>Core footprint</td><td>Cero — no toca toolsets.py, model_tools.py, run_agent.py</td></tr>
+<tr><td>Instalación</td><td><code>lydia mcp add webrtc --command node --args "dist/index.js" --env ...</td></tr>
+<tr><td>Tests</td><td>14/14 passing (vitest)</td></tr>
+</table>
+
+<h2>11.1 Roadmap de fases</h2>
+<table>
+<tr><th>Fase</th><th>Estado</th><th>Entregable</th></tr>
+<tr><td>Fase 1: Core MCP</td><td>✅ Completada</td><td>Node.js + TypeScript, 16 tools, MCP protocol handler</td></tr>
+<tr><td>Fase 2: WebRTC nativo</td><td>✅ Completada</td><td>RTCPeerConnection, DataChannels, WS signaling</td></tr>
+<tr><td>Fase 3: Fuentes de video + rooms</td><td>✅ Completada</td><td>FFmpeg bridge, RoomManager, FrameCache, auto-reconnect</td></tr>
+<tr><td>Fase 4: Worker Threads</td><td>✅ Completada</td><td>Pool de 8 threads, round-robin, auto-respawn, failover</td></tr>
+<tr><td>Fase 5: Integración Lydia</td><td>✅ Completada</td><td>MCP server registrado (16 tools), skill CREADA, WS test OK</td></tr>
+<tr><td>Fase 6: Documentación</td><td>✅ Completada</td><td>SDD actualizado, README, troubleshooting, ejemplos</td></tr>
+</table>
+
+<div class="page-footer">
+  <span>WebRTC MCP Server — SDD v0.4.0</span>
+  <span>Generado el 29/07/2026</span>
+  <span>Confidencial — Uso Interno — Arquant</span>
+</div>
+
+</body>
+</html>

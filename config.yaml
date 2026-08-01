@@ -1,0 +1,38 @@
+# WebRTC MCP Server — Configuración
+
+# Pool de workers (concurrencia)
+max_workers: 8
+connection_timeout_ms: 30000
+ice_restart_max_retries: 3
+
+# STUN / TURN por defecto
+ice_servers:
+  - urls: ["stun:stun.l.google.com:19302"]
+  # Opcional: descomentar si se tiene un TURN server
+  # - urls: ["turn:turn.ejemplo.com:3478"]
+  #   username: "usuario"
+  #   credential: "password"
+
+# DataChannel
+data_channel:
+  max_retries: 5
+  retry_backoff_ms: 1000
+  max_message_size: 262144    # 256 KB
+
+# Señalización (modos: "stdio" | "ws" | "both")
+signaling:
+  mode: "stdio"               # MCP nativo sobre stdio
+  ws_port: 8765               # Para signaling externo (OpenCode, etc.)
+  ws_host: "127.0.0.1"
+
+# Límites de concurrencia
+limits:
+  max_peers_per_worker: 16
+  max_rooms: 100
+  max_peers_per_room: 32
+  max_message_rate: 1000      # msg/s por peer
+
+# Logging
+logging:
+  level: "info"               # debug | info | warn | error
+  transport: "stdio"
