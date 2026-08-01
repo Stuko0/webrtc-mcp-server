@@ -3,6 +3,7 @@
 **Peer-to-peer WebRTC communication for AI agents.** Connects autonomous coding agents over low-latency WebRTC DataChannels with room-based signaling, video stream bridging, and multi-agent coordination — all exposed as MCP tools.
 
 [![npm](https://img.shields.io/npm/v/webrtc-mcp-server)](https://www.npmjs.com/package/webrtc-mcp-server)
+[![npm downloads](https://img.shields.io/npm/dm/webrtc-mcp-server)](https://www.npmjs.com/package/webrtc-mcp-server)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7+-blue)](https://www.typescriptlang.org/)
 [![Protocol](https://img.shields.io/badge/MCP-v2025--03--26-orange)](https://modelcontextprotocol.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](LICENSE)
