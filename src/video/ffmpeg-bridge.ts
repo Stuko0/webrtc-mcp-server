@@ -1,13 +1,3 @@
-/**
- * FFmpeg Bridge — spawns FFmpeg para decodificar streams RTSP/HLS
- * y produce frames JPEG individuales en un pipe de stdout.
- *
- * Arquitectura:
- *   FFmpeg subprocess → stdout (JPEG frames) → splitter → FrameCache
- *
- * El splitter detecta los marcadores JPEG SOI (0xFF 0xD8) y EOI (0xFF 0xD9)
- * para separar frames individuales del flujo continuo.
- */
 import { spawn, ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { StreamInfo, StreamFrame, StreamSourceType, StreamStatus } from "./types.js";

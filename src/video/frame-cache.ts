@@ -1,9 +1,3 @@
-/**
- * Frame cache — ring buffer de frames para polling.
- *
- * Almacena los últimos N frames de cada stream en memoria.
- * Thread-safe para acceso desde el MCP handler (no bloqueante en reads).
- */
 import type { StreamFrame } from "./types.js";
 
 export class FrameCache {

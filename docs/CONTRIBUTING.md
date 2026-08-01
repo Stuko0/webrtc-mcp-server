@@ -1,6 +1,6 @@
 # Contributing to WebRTC MCP Server
 
-¡Gracias por tu interés en contribuir! Este proyecto sigue las convenciones de Lydia Agent (AGENTS.md) y está escrito en TypeScript con Node.js.
+¡Gracias por tu interés en contribuir! Este proyecto sigue buenas prácticas de TypeScript con Node.js.
 
 ## Setup de desarrollo
 
@@ -46,7 +46,7 @@ src/
 
 ## Principios de diseño
 
-1. **Zero core footprint** — no modificar archivos de Lydia core (toolsets.py, model_tools.py, run_agent.py)
+1. **Zero core footprint** — el server es un proceso externo (MCP), no modifica el host del cliente
 2. **Idempotencia** — `graphify-out/` y `dist/` se ignoran en `.gitignore`
 3. **Thread safety** — el worker pool y frame cache usan mutexes
 4. **Auto-recuperación** — los workers se reinician automáticamente tras crash

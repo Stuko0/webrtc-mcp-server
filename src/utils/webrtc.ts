@@ -1,10 +1,3 @@
-/**
- * Declaraciones WebRTC para Node.js (wrtc).
- * 
- * Escribimos nuestras propias type defs porque @roamhq/wrtc
- * tiene .d.ts rotas que no compilan con TS estricto.
- */
-
 // --- Constructors (importados dinámicamente de wrtc) ---
 export interface WebRTCGlobals {
   RTCPeerConnection: any;

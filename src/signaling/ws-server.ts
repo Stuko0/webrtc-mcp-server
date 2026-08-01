@@ -1,20 +1,3 @@
-/**
- * WebSocket Signaling Server.
- *
- * Permite que peers externos (OpenCode, Claude Code, otros agentes)
- * se conecten vía WebSocket para intercambiar señales SDP/ICE sin
- * pasar por el MCP stdio.
- *
- * Cada conexión WS representa un peer lógico. Los mensajes siguen
- * el mismo formato que las señales MCP internas.
- *
- * Formato de mensajes (JSON):
- *   { type: "signal",   from, to, sdp?, candidate? }
- *   { type: "join",     room, peerId }
- *   { type: "leave",    room, peerId }
- *   { type: "ping" }  → { type: "pong" }
- *   { type: "error",   message }
- */
 import { WebSocketServer, WebSocket } from "ws";
 import type { SignalMessage, ServerConfig } from "../types.js";
 import type { RoomManager } from "./room.js";

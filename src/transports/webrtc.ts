@@ -1,8 +1,3 @@
-/**
- * WebRTC Transport — PeerConnection + DataChannel management.
- * Cada instancia maneja UNA conexión RTCPeerConnection.
- * Corre en un Worker Thread.
- */
 import { createLogger } from "../utils/logger.js";
 import { loadWebRTC } from "../utils/webrtc.js";
 import type * as wrtc from "../utils/webrtc.js";

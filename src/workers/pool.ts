@@ -1,9 +1,3 @@
-/**
- * Worker Pool — spawns N Worker Threads, distribuye peers round-robin.
- *
- * Cada worker corre su propio event loop con sus propias RTCPeerConnections.
- * El pool maneja failover: si un worker muere, re-asigna sus peers.
- */
 import { Worker } from "node:worker_threads";
 import { cpus } from "node:os";
 import { join, dirname } from "node:path";

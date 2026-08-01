@@ -1,18 +1,3 @@
-/**
- * MCP Handler — registra y despacha las herramientas WebRTC.
- *
- * Tools expuestas:
- *   webrtc_connect        — conectar a un peer vía WebRTC
- *   webrtc_disconnect     — cerrar conexión con un peer
- *   webrtc_send           — enviar mensaje DataChannel
- *   webrtc_broadcast      — broadcast a todos los peers en un room
- *   webrtc_list_peers     — listar peers conectados
- *   webrtc_peer_status    — estado detallado de un peer
- *   webrtc_create_room    — crear/signaling room
- *   webrtc_join_room      — unirse a un room
- *   webrtc_leave_room     — salir de un room
- *   webrtc_signal_relay   — re-enviar señal a otro peer en el room
- */
 import type { ServerConfig, PeerInfo, SignalMessage, RoomInfo } from "./types.js";
 import type { SignalingServer } from "./signaling/server.js";
 import type { RoomManager } from "./signaling/room.js";
@@ -281,7 +266,7 @@ export class McpHandler {
     // ── signal_relay ─────────────────────────────────────
     this._register(
       "webrtc_signal_relay",
-      "Re-enviar una señal (SDP/ICE) a un peer específico dentro de un room. Útil para multi-agente donde Lydia y OpenCode necesitan intercambiar señales a través del MCP server.",
+      "Re-enviar una señal (SDP/ICE) a un peer específico dentro de un room. Útil para multi-agente donde dos agentes necesitan intercambiar señales a través del MCP server.",
       {
         type: "object",
         properties: {

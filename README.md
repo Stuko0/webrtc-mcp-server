@@ -1,8 +1,8 @@
 # WebRTC MCP Server
 
-**Peer-to-peer WebRTC communication for AI agents.** Connects autonomous coding agents (Claude Code, OpenCode, Lydia) over low-latency WebRTC DataChannels with room-based signaling, video stream bridging, and multi-agent coordination — all exposed as MCP tools.
+**Peer-to-peer WebRTC communication for AI agents.** Connects autonomous coding agents over low-latency WebRTC DataChannels with room-based signaling, video stream bridging, and multi-agent coordination — all exposed as MCP tools.
 
-[![npm](https://img.shields.io/npm/v/@arquant/webrtc-mcp-server)](https://www.npmjs.com/package/@arquant/webrtc-mcp-server)
+[![npm](https://img.shields.io/npm/v/webrtc-mcp-server)](https://www.npmjs.com/package/webrtc-mcp-server)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7+-blue)](https://www.typescriptlang.org/)
 [![Protocol](https://img.shields.io/badge/MCP-v2025--03--26-orange)](https://modelcontextprotocol.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](LICENSE)
@@ -35,7 +35,7 @@ WEBRTC_SIGNALING_MODE=ws WEBRTC_WS_PORT=8765 node dist/index.js
 ## What It Does
 
 ### Multi-Agent Communication
-Connect AI agents (Lydia, OpenCode, Claude Code) over WebRTC DataChannels. Each agent becomes a peer that can:
+Connect AI agents (Claude Code, OpenCode, Cursor, and any MCP client) over WebRTC DataChannels. Each agent becomes a peer that can:
 - Join named rooms for group communication
 - Send structured messages (JSON) with ACK
 - Broadcast to all peers in a room
@@ -65,14 +65,14 @@ WebSocket server (`ws://host:port`) for external peers:
 # stdio mode (MCP transport)
 WEBRTC_SIGNALING_MODE=stdio node dist/index.js
 
-# WebSocket signaling mode (for external peers like OpenCode)
+# WebSocket signaling mode (for external peers)
 WEBRTC_SIGNALING_MODE=ws WEBRTC_WS_PORT=8765 node dist/index.js
 
 # Both modes simultaneously
 WEBRTC_SIGNALING_MODE=both node dist/index.js
 ```
 
-### As an MCP server (Lydia / Claude Desktop / Cursor)
+### As an MCP server (Claude Desktop / Cursor / any MCP client)
 
 ```json
 {
@@ -88,7 +88,7 @@ WEBRTC_SIGNALING_MODE=both node dist/index.js
 }
 ```
 
-### External peer via WebSocket (OpenCode)
+### External peer via WebSocket
 
 ```javascript
 // Node.js client
@@ -96,7 +96,7 @@ const ws = new WebSocket('ws://127.0.0.1:8765');
 ws.on('open', () => {
   ws.send(JSON.stringify({
     type: 'join',
-    peerId: 'open-code',
+    peerId: 'peer-a',
     room: 'my-room'
   }));
 });
@@ -164,14 +164,14 @@ See [`config.yaml`](config.yaml) for the full default configuration with TURN, r
 ## Multi-Agent Workflow
 
 ```
-1. Lydia:       webrtc_create_room("team-sync")
-2. OpenCode:    {type:"join", peerId:"opencode", room:"team-sync"}  ← WebSocket
-3. Lydia:       webrtc_connect(peerId="opencode")  → RTCPeerConnection + DataChannel
+1. Agent A:   webrtc_create_room("team-sync")
+2. Agent B:   {type:"join", peerId:"agent-b", room:"team-sync"}  ← WebSocket
+3. Agent A:   webrtc_connect(peerId="agent-b")  → RTCPeerConnection + DataChannel
 
-4. Lydia → OpenCode:  webrtc_send(peerId="opencode", data={"task":"review","file":"src/index.ts"})
-5. OpenCode → Lydia:  webrtc_send(peerId="lydia", data={"result":"✅ no issues"})
+4. A → B:     webrtc_send(peerId="agent-b", data={"task":"review","file":"src/index.ts"})
+5. B → A:     webrtc_send(peerId="agent-a", data={"result":"✅ no issues"})
 
-6. Broadcast to all:  webrtc_broadcast(data={"type":"status","msg":"deploying"})
+6. Broadcast: webrtc_broadcast(data={"type":"status","msg":"deploying"})
 ```
 
 ---
@@ -197,7 +197,7 @@ Frames are cached in a thread-safe ring buffer — repeated `frame_get` calls re
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  LYDIA AGENT (CLI/TUI/Gateway)                          │
+│  MCP CLIENT (Claude Desktop, Cursor, any MCP host)     │
 │  MCP stdio transport: node dist/index.js                │
 ├─────────────────────────────────────────────────────────┤
 │  MCP Protocol Handler (v2025-03-26)                    │
@@ -250,4 +250,4 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-*Built for Lydia Agent and the open-source AI agent ecosystem. WebRTC is the industry standard for real-time P2P communication (used by Zoom, Google Meet, Discord).*
+*WebRTC is the industry standard for real-time P2P communication (used by Zoom, Google Meet, Discord). This server brings that capability to the MCP ecosystem for multi-agent collaboration.*

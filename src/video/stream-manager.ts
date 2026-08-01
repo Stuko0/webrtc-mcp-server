@@ -1,9 +1,3 @@
-/**
- * Stream Manager — coordina múltiples FfmpegBridge instances.
- *
- * Es el punto de entrada para el MCP handler. Cada stream
- * tiene un ID único (nanoid) y su propio bridge + cache.
- */
 import { nanoid } from "nanoid";
 import { FfmpegBridge } from "./ffmpeg-bridge.js";
 import { FrameCache } from "./frame-cache.js";

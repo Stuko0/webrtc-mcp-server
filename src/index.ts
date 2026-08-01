@@ -1,17 +1,3 @@
-#!/usr/bin/env node
-/**
- * WebRTC MCP Server — Entry Point (MCP Protocol v20241113 compatible).
- *
- * Modos de señalización:
- *   stdio → MCP nativo sobre stdin/stdout (Lydia CLI/TUI)
- *   ws    → WebSocket para peers externos (OpenCode, Claude Code)
- *   both  → Ambos simultáneamente
- *
- * Protocolo MCP:
- *   - Recibe: {"jsonrpc":"2.0","id":N,"method":"initialize",...}
- *   - Responde: {"jsonrpc":"2.0","id":N,"result":{"protocolVersion":"20241113",...}}
- *   - Luego: {"jsonrpc":"2.0","method":"initialized","params":{}}
- */
 import { loadConfig } from "./config.js";
 import { SignalingServer } from "./signaling/server.js";
 import { WsSignalingServer } from "./signaling/ws-server.js";

@@ -1,5 +1,3 @@
-/** Tipos para el subsistema de video (Fase 3). */
-
 export type StreamSourceType = "rtsp" | "hls" | "rtmp" | "file" | "unknown";
 
 export type StreamStatus = "connecting" | "streaming" | "error" | "disconnected" | "reconnecting";

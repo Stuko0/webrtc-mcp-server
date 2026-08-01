@@ -1,7 +1,3 @@
-/**
- * Config loader.
- * Lee de environment variables primero, con fallback a config.json.
- */
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerConfig } from "./types.js";

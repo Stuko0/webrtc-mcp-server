@@ -1,7 +1,3 @@
-/**
- * Health Check Tool — Reporta estado del servidor.
- * Expone métricas en tiempo real: workers, peers, rooms, memoria, uptime.
- */
 import type { SignalingServer } from "../signaling/server.js";
 import type { RoomManager } from "../signaling/room.js";
 import type { WsSignalingServer } from "../signaling/ws-server.js";

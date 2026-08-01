@@ -1,21 +1,3 @@
-/**
- * Worker thread entry point.
- * Cada worker corre su propio event loop y maneja un subconjunto de peers.
- *
- * Protocolo de mensajes (JSON):
- *   { type: "connect", peerId, iceServers, dataChannels }
- *   { type: "disconnect", peerId }
- *   { type: "send", peerId, channel, msg }
- *   { type: "signal", peerId, sdp, candidate }
- *   { type: "ping" }
- *
- * Respuestas:
- *   { type: "connected", peerId, offer? }
- *   { type: "message", peerId, channel, data }
- *   { type: "state", peerId, state }
- *   { type: "error", peerId, error }
- *   { type: "pong" }
- */
 import { parentPort } from "node:worker_threads";
 import { loadWebRTC } from "../utils/webrtc.js";
 import { createLogger } from "../utils/logger.js";

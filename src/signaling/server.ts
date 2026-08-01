@@ -1,9 +1,3 @@
-/**
- * Signaling Server — intercambio SDP/ICE entre peers.
- *
- * Usa MCP JSON-RPC como canal de señalización (modo stdio)
- * y opcionalmente WebSocket (modo ws/both) para peers externos.
- */
 import { EventEmitter } from "node:events";
 import type { SignalMessage, ServerConfig } from "../types.js";
 import { createLogger } from "../utils/logger.js";

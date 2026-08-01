@@ -1,11 +1,3 @@
-/**
- * Room manager — grupos de peers para topología mesh multi-agente.
- *
- * Un room es un grupo lógico de peers que pueden descubrirse y señalizarse
- * entre sí. Cada peer en un room recibe broadcasts de join/leave de los demás.
- *
- * Ejemplo de uso: room "dev" con Lydia, OpenCode, y 3 workers más.
- */
 import { nanoid } from "nanoid";
 import type { RoomInfo, ServerConfig } from "../types.js";
 import { createLogger } from "../utils/logger.js";

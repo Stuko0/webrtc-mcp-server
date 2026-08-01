@@ -49,10 +49,10 @@
 - [ ] Config validation with Zod schemas
 
 ### v1.0.0 — npm Publish (1 día)
-- [ ] Publish `@arquant/webrtc-mcp-server` on npm
+- [ ] Publish `webrtc-mcp-server` on npm
 - [ ] MCP catalog submission
 - [ ] Documentation site (Docusaurus)
-- [ ] Example projects: Lydia skill, OpenCode client
+- [ ] Example projects: MCP client integration, WebSocket peer client
 
 ---
 
