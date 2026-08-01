@@ -23,6 +23,10 @@ export class McpHandler {
   private streams: StreamManager;
   private peers = new Map<string, { joinedAt: number }>();
   private pool: any = null;
+  /** Mensajes entrantes dirigidos al cliente MCP (B → A). */
+  private inbox: Array<{ from: string; data: any; at: number }> = [];
+  /** Registro de tareas enviadas (taskId → estado). */
+  private tasks = new Map<string, { id: string; from: string; to: string; spec: string; status: string; sentAt: number }>();
 
   constructor(signaling: SignalingServer, rooms: RoomManager, wsServer?: WsSignalingServer | null) {
     this.signaling = signaling;
@@ -40,6 +44,22 @@ export class McpHandler {
   /** Conectar el WS signaling server (para relay a peers WebSocket). */
   setWsServer(ws: WsSignalingServer | null): void {
     this.wsServer = ws;
+  }
+
+  /** Recibir mensajes no ruteables a peers WS (B → cliente MCP). */
+  onInboundMessage(msg: any): void {
+    this.inbox.push({
+      from: String(msg.from ?? "unknown"),
+      data: msg.data ?? msg,
+      at: Date.now(),
+    });
+    // Actualizar estado de la tarea si es un resultado
+    const data = msg.data as any;
+    if (data && data.taskId && this.tasks.has(data.taskId)) {
+      const t = this.tasks.get(data.taskId)!;
+      t.status = data.status === "done" ? "done" : "in_progress";
+      this.tasks.set(data.taskId, t);
+    }
   }
 
   /** Entregar un mensaje a un peer: DataChannel (pool) → fallback WS relay. */
@@ -157,8 +177,19 @@ export class McpHandler {
         const peerId = String(args.peerId);
         const data = args.data;
         const delivered = this.deliver(peerId, { type: "task", from: "host", peerId, data });
+        // Registrar tarea para tracking (si data trae id/spec)
+        const d = data as any;
+        const taskId = String(d?.id ?? `T-${Date.now()}`);
+        this.tasks.set(taskId, {
+          id: taskId,
+          from: "host",
+          to: peerId,
+          spec: String(d?.spec ?? d?.task ?? ""),
+          status: delivered ? "sent" : "failed",
+          sentAt: Date.now(),
+        });
         return {
-          content: [{ type: "text", text: JSON.stringify({ peerId, delivered, size: JSON.stringify(data).length }) }],
+          content: [{ type: "text", text: JSON.stringify({ peerId, delivered, taskId, size: JSON.stringify(data).length }) }],
         };
       },
     );
@@ -194,17 +225,28 @@ export class McpHandler {
         // Entrega real: WS relay (por DataChannel no hay broadcast multi-peer hoy)
         let deliveredCount = 0;
         const failed: string[] = [];
+        const d = args.data as any;
+        const taskId = String(d?.id ?? `BC-${Date.now()}`);
         for (const target of targets) {
           const ok = this.deliver(target, { type: "task", from: "host", room: room ?? "", data: args.data });
           if (ok) deliveredCount++;
           else failed.push(target);
         }
+        // Registrar broadcast como tarea multi-peer
+        this.tasks.set(taskId, {
+          id: taskId,
+          from: "host",
+          to: targets.join(","),
+          spec: String(d?.spec ?? d?.task ?? ""),
+          status: failed.length === 0 ? "sent" : `partial(${failed.length})`,
+          sentAt: Date.now(),
+        });
 
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify({ recipients: targets.length, delivered: deliveredCount, failed, total: targets }),
+              text: JSON.stringify({ recipients: targets.length, delivered: deliveredCount, failed, taskId, total: targets }),
             },
           ],
         };
@@ -243,6 +285,67 @@ export class McpHandler {
         }
         return {
           content: [{ type: "text", text: JSON.stringify({ peerId, joinedAt: info.joinedAt }) }],
+        };
+      },
+    );
+
+    // ── poll ─────────────────────────────────────────────
+    this._register(
+      "webrtc_poll",
+      "Recibir mensajes entrantes dirigidos a este cliente MCP (respuestas/ACKs de otros peers). Devuelve y limpia la cola.",
+      {
+        type: "object",
+        properties: {
+          clear: { type: "boolean", default: true, description: "Limpiar la cola tras leerla" },
+        },
+      },
+      async (args) => {
+        const clear = args.clear !== false;
+        const msgs = this.inbox;
+        if (clear) this.inbox = [];
+        return {
+          content: [{ type: "text", text: JSON.stringify({ count: msgs.length, messages: msgs }) }],
+        };
+      },
+    );
+
+    // ── room_info ────────────────────────────────────────
+    this._register(
+      "webrtc_room_info",
+      "Ver quién está en un room, qué tareas tiene cada peer y su estado (sent/in_progress/done).",
+      {
+        type: "object",
+        properties: {
+          room: { type: "string", description: "ID del room (default: primero existente)" },
+        },
+      },
+      async (args) => {
+        const rooms = this.rooms.list();
+        const room = (args.room as string) ?? rooms[0]?.id ?? "default";
+        const peerIds = this.rooms.getPeersInRoom(room);
+        const wsPeers = this.wsServer ? Array.from((this.wsServer as any).peers?.keys?.() ?? []) : [];
+        const tasksByPeer: Record<string, any[]> = {};
+        for (const [id, t] of this.tasks) {
+          const targets = t.to.split(",");
+          for (const target of targets) {
+            (tasksByPeer[target] ??= []).push({ taskId: t.id, spec: t.spec, status: t.status });
+          }
+        }
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                room,
+                peerCount: peerIds.length,
+                peers: peerIds.map((id) => ({
+                  peerId: id,
+                  ws: wsPeers.includes(id),
+                  tasks: tasksByPeer[id] ?? [],
+                })),
+              }),
+            },
+          ],
         };
       },
     );

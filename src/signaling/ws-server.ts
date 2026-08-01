@@ -17,10 +17,16 @@ export class WsSignalingServer {
   private peers = new Map<string, WsPeer>();
   private rooms: RoomManager;
   private config: ServerConfig;
+  private onUndelivered: ((msg: any) => void) | null = null;
 
   constructor(rooms: RoomManager, config: ServerConfig) {
     this.rooms = rooms;
     this.config = config;
+  }
+
+  /** Hook para mensajes cuyo destino no es un peer WS (p.ej. el cliente MCP). */
+  setUndeliveredHandler(fn: (msg: any) => void): void {
+    this.onUndelivered = fn;
   }
 
   /** Iniciar el servidor WebSocket. */
@@ -244,8 +250,13 @@ export class WsSignalingServer {
     };
     const delivered = this.relayToPeer(to, relayed);
     if (!delivered) {
-      logger.warn("ws command target not found", { from: peer.peerId, to });
-      this._sendError(peer.ws, `Peer not found: ${to}`);
+      // El destino no es un peer WS → puede ser el cliente MCP (host) u otro peer
+      if (this.onUndelivered) {
+        this.onUndelivered(relayed);
+      } else {
+        logger.warn("ws command target not found", { from: peer.peerId, to });
+        this._sendError(peer.ws, `Peer not found: ${to}`);
+      }
     }
   }
 

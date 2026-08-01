@@ -51,6 +51,8 @@ async function main(): Promise<void> {
     wsServer = new WsSignalingServer(rooms, config);
     wsServer.start();
     handler.setWsServer(wsServer);
+    // Mensajes dirigidos al cliente MCP (B → A) van al inbox del handler
+    wsServer.setUndeliveredHandler((msg) => handler.onInboundMessage(msg));
 
     signaling.on("signal", (msg) => {
       if (!wsServer) return;
