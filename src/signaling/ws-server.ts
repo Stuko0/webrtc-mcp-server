@@ -235,7 +235,25 @@ export class WsSignalingServer {
 
   /** Re-enviar un comando/mensaje de un peer a otro (A → B). */
   private _handleCommand(peer: WsPeer, msg: any): void {
-    const { to } = msg;
+    const { to, room } = msg;
+
+    // ── Control de permisos ─────────────────────────────────────
+    // Asignar tareas (command "task") SOLO si el emisor es el principal del room.
+    // Los workers secundarios pueden solicitar (status/status_result/task_result) pero no asignar.
+    if (msg.command === "task" || msg.type === "task") {
+      const roomId = room ?? Array.from(peer.rooms)[0] ?? "default";
+      if (!this.rooms.isPrincipal(roomId, peer.peerId)) {
+        const principal = this.rooms.getPrincipal(roomId);
+        this._sendError(
+          peer.ws,
+          `Forbidden: solo el worker principal (${principal ?? "ninguno"}) puede asignar tareas. ` +
+            `${peer.peerId} es worker secundario (solo puede solicitar).`
+        );
+        logger.warn("task assignment rejected (not principal)", { from: peer.peerId, room: roomId, principal });
+        return;
+      }
+    }
+
     if (!to) {
       this._sendError(peer.ws, "Command requires 'to' field");
       return;

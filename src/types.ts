@@ -29,6 +29,8 @@ export interface RoomInfo {
   name: string;
   peers: string[];
   createdAt: number;
+  /** Peer principal (jefe): el primer worker que se unió. Solo él puede asignar tareas. */
+  principal?: string;
 }
 
 // ─── Signal (intercambio SDP / ICE) ───────────────────────────

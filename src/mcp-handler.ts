@@ -73,6 +73,25 @@ export class McpHandler {
     return false;
   }
 
+  /**
+   * Verificar que el host MCP puede asignar tareas al peer destino.
+   * Regla: solo el worker principal (primer peer del room) puede asignar.
+   * El host es principal solo si creó el room (o llegó primero); si el room
+   * ya tiene otro principal (p.ej. un worker WS llegó antes), el host no asigna.
+   */
+  private canAssignTo(peerId: string): { ok: boolean; reason?: string } {
+    const roomsOfPeer = this.rooms.getPeerRooms(peerId);
+    for (const room of roomsOfPeer) {
+      if (room.principal && room.principal !== "host") {
+        return {
+          ok: false,
+          reason: `solo el worker principal (${room.principal}) puede asignar tareas en room "${room.id}"; host es secundario`,
+        };
+      }
+    }
+    return { ok: true };
+  }
+
   /** Obtener todas las definiciones de herramientas para MCP. */
   get toolDefinitions(): Array<{ name: string; description: string; inputSchema: any }> {
     return Array.from(this.tools.values()).map((t) => ({
@@ -176,6 +195,14 @@ export class McpHandler {
       async (args) => {
         const peerId = String(args.peerId);
         const data = args.data;
+        // Control de permisos: solo el principal del room puede asignar tareas
+        const check = this.canAssignTo(peerId);
+        if (!check.ok) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ peerId, delivered: false, error: check.reason }) }],
+            isError: true,
+          };
+        }
         const delivered = this.deliver(peerId, { type: "task", from: "host", peerId, data });
         // Registrar tarea para tracking (si data trae id/spec)
         const d = data as any;
@@ -221,6 +248,28 @@ export class McpHandler {
         }
 
         targets = targets.filter((p) => !exclude.has(p));
+
+        // Control de permisos: solo el principal del room puede asignar tareas
+        const forbidden: string[] = [];
+        for (const target of targets) {
+          if (!this.canAssignTo(target).ok) forbidden.push(target);
+        }
+        if (forbidden.length > 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  recipients: 0,
+                  delivered: 0,
+                  forbidden,
+                  error: `solo el worker principal del room puede asignar tareas (sin permiso: ${forbidden.join(", ")})`,
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
 
         // Entrega real: WS relay (por DataChannel no hay broadcast multi-peer hoy)
         let deliveredCount = 0;
@@ -322,6 +371,7 @@ export class McpHandler {
       async (args) => {
         const rooms = this.rooms.list();
         const room = (args.room as string) ?? rooms[0]?.id ?? "default";
+        const roomInfo = this.rooms.list().find((r) => r.id === room);
         const peerIds = this.rooms.getPeersInRoom(room);
         const wsPeers = this.wsServer ? Array.from((this.wsServer as any).peers?.keys?.() ?? []) : [];
         const tasksByPeer: Record<string, any[]> = {};
@@ -337,10 +387,12 @@ export class McpHandler {
               type: "text",
               text: JSON.stringify({
                 room,
+                principal: roomInfo?.principal ?? null,
                 peerCount: peerIds.length,
                 peers: peerIds.map((id) => ({
                   peerId: id,
                   ws: wsPeers.includes(id),
+                  principal: roomInfo?.principal === id,
                   tasks: tasksByPeer[id] ?? [],
                 })),
               }),
@@ -363,7 +415,8 @@ export class McpHandler {
         required: ["room"],
       },
       async (args) => {
-        const room = this.rooms.join(String(args.room), "server", String(args.name ?? ""));
+        // El host MCP se une como "host": es el primer peer → principal (jefe) del room.
+        const room = this.rooms.join(String(args.room), "host", String(args.name ?? ""));
         return { content: [{ type: "text", text: JSON.stringify(room) }] };
       },
     );

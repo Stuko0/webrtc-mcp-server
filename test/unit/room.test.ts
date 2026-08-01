@@ -70,4 +70,39 @@ describe("RoomManager", () => {
     rm.leave("dev", "alice");
     expect(rm.getPeerRooms("alice")).toHaveLength(1);
   });
+
+  it("assigns principal to first peer (jefe)", () => {
+    const rm = new RoomManager(mockConfig);
+    rm.join("team", "lydia");
+    rm.join("team", "opencode");
+    rm.join("team", "kiro");
+    expect(rm.getPrincipal("team")).toBe("lydia");
+    expect(rm.isPrincipal("team", "lydia")).toBe(true);
+    expect(rm.isPrincipal("team", "opencode")).toBe(false);
+  });
+
+  it("keeps principal when more peers join", () => {
+    const rm = new RoomManager(mockConfig);
+    rm.join("team", "opencode");
+    rm.join("team", "kiro");
+    rm.join("team", "lydia");
+    expect(rm.getPrincipal("team")).toBe("opencode");
+  });
+
+  it("promotes next peer when principal leaves", () => {
+    const rm = new RoomManager(mockConfig);
+    rm.join("team", "lydia");
+    rm.join("team", "opencode");
+    rm.join("team", "kiro");
+    rm.leave("team", "lydia");
+    expect(rm.getPrincipal("team")).toBe("opencode");
+    expect(rm.isPrincipal("team", "opencode")).toBe(true);
+  });
+
+  it("clears principal when room empties", () => {
+    const rm = new RoomManager(mockConfig);
+    rm.join("team", "lydia");
+    rm.leave("team", "lydia");
+    expect(rm.list()).toHaveLength(0);
+  });
 });
