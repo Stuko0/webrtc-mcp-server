@@ -45,6 +45,9 @@ export interface RTCDataChannel {
 export type PeerConnectionState = "new" | "connecting" | "connected" | "disconnected" | "failed" | "closed";
 
 // --- Lazy loader para wrtc ---
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+
 let _wrtc: WebRTCGlobals | null = null;
 
 export function loadWebRTC(): WebRTCGlobals {
