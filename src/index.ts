@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { loadConfig } from "./config.js";
 import { SignalingServer } from "./signaling/server.js";
 import { WsSignalingServer } from "./signaling/ws-server.js";

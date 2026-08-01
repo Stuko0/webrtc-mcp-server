@@ -4,6 +4,16 @@
   "description": "WebRTC MCP Server — peer-to-peer multi-agent communication, room-based signaling, and video stream bridging via low-latency DataChannels.",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "webrtc-mcp-server": "dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "config.yaml",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=20.0.0"
   },
@@ -16,7 +26,8 @@
     "test:watch": "vitest",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "fmt": "prettier --write 'src/**/*.ts' 'test/**/*.ts'",
-    "lint": "eslint src/ test/"
+    "lint": "eslint src/ test/",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.0",
@@ -43,11 +54,26 @@
   "keywords": [
     "webrtc",
     "mcp",
+    "model-context-protocol",
     "agent",
+    "multi-agent",
     "signaling",
     "realtime",
     "datachannel",
-    "p2p"
+    "p2p",
+    "rtsp",
+    "ffmpeg"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Stuko0/webrtc-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Stuko0/webrtc-mcp-server/issues"
+  },
+  "homepage": "https://github.com/Stuko0/webrtc-mcp-server",
+  "author": {
+    "name": "Stuko"
+  }
 }
