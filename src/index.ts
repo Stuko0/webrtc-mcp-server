@@ -36,7 +36,6 @@ async function main(): Promise<void> {
         break;
       case "message":
         // Reenviar DataChannel messages al handler MCP
-        (handler as any).__pool = pool;
         break;
       case "error":
         logger.error("worker error", { peerId: msg.peerId, error: msg.error });
@@ -45,12 +44,13 @@ async function main(): Promise<void> {
   }).catch((err) => {
     logger.error("pool start error", { error: String(err) });
   });
-  (handler as any).__pool = pool;
+  handler.setPool(pool);
 
   // ── WebSocket signaling ───────────────────────────────
   if (config.signaling.mode === "ws" || config.signaling.mode === "both") {
     wsServer = new WsSignalingServer(rooms, config);
     wsServer.start();
+    handler.setWsServer(wsServer);
 
     signaling.on("signal", (msg) => {
       if (!wsServer) return;
@@ -69,21 +69,32 @@ async function main(): Promise<void> {
     process.stdin.setEncoding("utf-8");
     let buffer = "";
 
-    for await (const chunk of process.stdin) {
-      buffer += chunk;
-      while (buffer.includes("\n")) {
-        const idx = buffer.indexOf("\n");
-        const line = buffer.slice(0, idx).trim();
-        buffer = buffer.slice(idx + 1);
-        if (!line) continue;
+    const stdioLoop = (async () => {
+      for await (const chunk of process.stdin) {
+        buffer += chunk;
+        while (buffer.includes("\n")) {
+          const idx = buffer.indexOf("\n");
+          const line = buffer.slice(0, idx).trim();
+          buffer = buffer.slice(idx + 1);
+          if (!line) continue;
 
-        try {
-          const request = JSON.parse(line);
-          await handleMcpRequest(request, handler, config);
-        } catch (err) {
-          logger.error("json parse error", { error: String(err) });
+          try {
+            const request = JSON.parse(line);
+            await handleMcpRequest(request, handler, config);
+          } catch (err) {
+            logger.error("json parse error", { error: String(err) });
+          }
         }
       }
+      logger.info("stdio EOF — stdin closed");
+    })();
+
+    // En modo both/ws el proceso vive por el WS signaling, no por stdin.
+    if (config.signaling.mode === "both") {
+      stdioLoop.catch(() => {});
+      await new Promise(() => {}); // esperar forever (WS server activo)
+    } else {
+      await stdioLoop; // stdio puro: vivir mientras el cliente MCP hable
     }
   } else {
     logger.info("ws-only mode", { port: config.signaling.wsPort });

@@ -17,7 +17,6 @@ export class WsSignalingServer {
   private peers = new Map<string, WsPeer>();
   private rooms: RoomManager;
   private config: ServerConfig;
-  private _handleCommand: ((peer: WsPeer, msg: any) => void) | undefined;
 
   constructor(rooms: RoomManager, config: ServerConfig) {
     this.rooms = rooms;
@@ -76,7 +75,7 @@ export class WsSignalingServer {
               break;
 
             case "command":
-              if (peer) this._handleCommand?.(peer, msg);
+              if (peer) this._handleCommand(peer, msg);
               break;
 
             default:
@@ -226,6 +225,28 @@ export class WsSignalingServer {
     }
     this.peers.delete(peer.peerId);
     logger.info("ws peer disconnected", { peerId: peer.peerId });
+  }
+
+  /** Re-enviar un comando/mensaje de un peer a otro (A → B). */
+  private _handleCommand(peer: WsPeer, msg: any): void {
+    const { to } = msg;
+    if (!to) {
+      this._sendError(peer.ws, "Command requires 'to' field");
+      return;
+    }
+    const relayed: SignalMessage = {
+      type: "command",
+      from: peer.peerId,
+      to,
+      data: msg.data ?? msg.command,
+      room: msg.room,
+      command: msg.command,
+    };
+    const delivered = this.relayToPeer(to, relayed);
+    if (!delivered) {
+      logger.warn("ws command target not found", { from: peer.peerId, to });
+      this._sendError(peer.ws, `Peer not found: ${to}`);
+    }
   }
 
   private _send(ws: WebSocket, data: unknown): void {

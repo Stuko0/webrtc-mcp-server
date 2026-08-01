@@ -39,7 +39,9 @@ export type SignalType =
   | "ice_candidate"
   | "ice_restart"
   | "join"
-  | "leave";
+  | "leave"
+  | "command"
+  | "task";
 
 export interface SignalMessage {
   type: SignalType;
@@ -49,6 +51,8 @@ export interface SignalMessage {
   sdp?: string;
   candidate?: RTCIceCandidateInit;
   label?: string;
+  data?: unknown;
+  command?: string;
 }
 
 // ─── DataChannel message ──────────────────────────────────────

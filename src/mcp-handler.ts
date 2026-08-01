@@ -22,6 +22,7 @@ export class McpHandler {
   private wsServer: WsSignalingServer | null;
   private streams: StreamManager;
   private peers = new Map<string, { joinedAt: number }>();
+  private pool: any = null;
 
   constructor(signaling: SignalingServer, rooms: RoomManager, wsServer?: WsSignalingServer | null) {
     this.signaling = signaling;
@@ -29,6 +30,27 @@ export class McpHandler {
     this.wsServer = wsServer ?? null;
     this.streams = new StreamManager();
     this._registerAll();
+  }
+
+  /** Conectar el worker pool (para DataChannel delivery). */
+  setPool(pool: any): void {
+    this.pool = pool;
+  }
+
+  /** Conectar el WS signaling server (para relay a peers WebSocket). */
+  setWsServer(ws: WsSignalingServer | null): void {
+    this.wsServer = ws;
+  }
+
+  /** Entregar un mensaje a un peer: DataChannel (pool) → fallback WS relay. */
+  private deliver(peerId: string, msg: Record<string, unknown>): boolean {
+    if (this.pool && this.pool.sendToPeer && this.pool.sendToPeer(peerId, { type: "send", peerId, channel: "default", msg })) {
+      return true;
+    }
+    if (this.wsServer && this.wsServer.relayToPeer(peerId, { type: "command", from: "host", to: peerId, ...msg })) {
+      return true;
+    }
+    return false;
   }
 
   /** Obtener todas las definiciones de herramientas para MCP. */
@@ -134,8 +156,9 @@ export class McpHandler {
       async (args) => {
         const peerId = String(args.peerId);
         const data = args.data;
+        const delivered = this.deliver(peerId, { type: "task", from: "host", peerId, data });
         return {
-          content: [{ type: "text", text: JSON.stringify({ peerId, sent: true, size: JSON.stringify(data).length }) }],
+          content: [{ type: "text", text: JSON.stringify({ peerId, delivered, size: JSON.stringify(data).length }) }],
         };
       },
     );
@@ -167,8 +190,23 @@ export class McpHandler {
         }
 
         targets = targets.filter((p) => !exclude.has(p));
+
+        // Entrega real: WS relay (por DataChannel no hay broadcast multi-peer hoy)
+        let deliveredCount = 0;
+        const failed: string[] = [];
+        for (const target of targets) {
+          const ok = this.deliver(target, { type: "task", from: "host", room: room ?? "", data: args.data });
+          if (ok) deliveredCount++;
+          else failed.push(target);
+        }
+
         return {
-          content: [{ type: "text", text: JSON.stringify({ recipients: targets.length, total: targets }) }],
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ recipients: targets.length, delivered: deliveredCount, failed, total: targets }),
+            },
+          ],
         };
       },
     );
