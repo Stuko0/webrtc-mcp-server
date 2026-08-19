@@ -1,15 +1,17 @@
 {
   "name": "webrtc-mcp-server",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "WebRTC MCP Server — peer-to-peer multi-agent communication, room-based signaling, and video stream bridging via low-latency DataChannels.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "webrtc-mcp-server": "dist/index.js"
+    "webrtc-mcp-server": "dist/index.js",
+    "agent-worker": "scripts/agent-worker.mjs"
   },
   "files": [
     "dist/",
+    "scripts/",
     "config.yaml",
     "README.md",
     "LICENSE"
