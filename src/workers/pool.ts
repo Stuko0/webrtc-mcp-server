@@ -94,6 +94,20 @@ export class WorkerPool {
     return minIdx;
   }
 
+  /**
+   * Crear una conexión WebRTC real.
+   *
+   * DEPRECADO como entrada al pool: @roamhq/wrtc no es seguro en
+   * worker_threads (crash V8 fatal). Las conexiones WebRTC reales se crean en
+   * el hilo principal vía WebRTCConnectionManager. Este método devuelve un
+   * error claro para que ninguna ruta de código intente crear una PC aquí.
+   */
+  connectPeer(_peerId: string, _opts?: { iceServers?: any[]; dataChannels?: string[] }): Promise<{ type: "offer"; sdp: string }> {
+    return Promise.reject(
+      new Error("WebRTC no se ejecuta en worker_threads (@roamhq/wrtc no es thread-safe); usa WebRTCConnectionManager (hilo principal)"),
+    );
+  }
+
   /** Liberar un peer de su worker. */
   release(peerId: string): void {
     const wid = this.assignments.get(peerId);

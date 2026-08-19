@@ -1,8 +1,9 @@
-import type { ServerConfig, PeerInfo, SignalMessage, RoomInfo } from "./types.js";
+import type { ServerConfig, PeerInfo, RoomInfo } from "./types.js";
 import type { SignalingServer } from "./signaling/server.js";
 import type { RoomManager } from "./signaling/room.js";
 import type { WsSignalingServer } from "./signaling/ws-server.js";
 import { StreamManager } from "./video/stream-manager.js";
+import { WebRTCConnectionManager } from "./webrtc/manager.js";
 import { buildHealthReport } from "./utils/health.js";
 import { createLogger } from "./utils/logger.js";
 
@@ -23,6 +24,8 @@ export class McpHandler {
   private streams: StreamManager;
   private peers = new Map<string, { joinedAt: number }>();
   private pool: any = null;
+  /** Conexiones WebRTC reales (hilo principal — @roamhq/wrtc no es thread-safe). */
+  private webrtc: WebRTCConnectionManager | null = null;
   /** Mensajes entrantes dirigidos al cliente MCP (B → A). */
   private inbox: Array<{ from: string; data: any; at: number }> = [];
   /** Registro de tareas enviadas (taskId → estado). */
@@ -41,6 +44,11 @@ export class McpHandler {
     this.pool = pool;
   }
 
+  /** Conectar el gestor de conexiones WebRTC reales (hilo principal). */
+  setWebRTCManager(manager: WebRTCConnectionManager | null): void {
+    this.webrtc = manager;
+  }
+
   /** Conectar el WS signaling server (para relay a peers WebSocket). */
   setWsServer(ws: WsSignalingServer | null): void {
     this.wsServer = ws;
@@ -48,8 +56,27 @@ export class McpHandler {
 
   /** Recibir mensajes no ruteables a peers WS (B → cliente MCP). */
   onInboundMessage(msg: any): void {
+    const from = String(msg.from ?? "unknown");
+
+    // Señalización WebRTC dirigida al host (answer/ice/offer de un peer) →
+    // se reenvía al WebRTCConnectionManager (hilo principal), no al inbox.
+    if (
+      this.webrtc &&
+      from !== "unknown" &&
+      (msg?.sdp || msg?.candidate) &&
+      ["answer", "ice_candidate", "offer", "ice_restart", "signal"].includes(msg?.type)
+    ) {
+      this.webrtc
+        .signal(from, { sdp: msg.sdp, candidate: msg.candidate })
+        .then((ok) => {
+          if (!ok) logger.debug("webrtc signal sin conexión activa", { from, type: msg?.type });
+        })
+        .catch((err) => logger.warn("webrtc signal error", { from, error: String(err) }));
+      return;
+    }
+
     this.inbox.push({
-      from: String(msg.from ?? "unknown"),
+      from,
       data: msg.data ?? msg,
       at: Date.now(),
     });
@@ -62,8 +89,21 @@ export class McpHandler {
     }
   }
 
-  /** Entregar un mensaje a un peer: DataChannel (pool) → fallback WS relay. */
+  /** Entregar un mensaje a un peer: DataChannel (WebRTC real) → pool → fallback WS relay. */
   private deliver(peerId: string, msg: Record<string, unknown>): boolean {
+    if (
+      this.webrtc?.send &&
+      this.webrtc.send(peerId, {
+        from: "host",
+        to: peerId,
+        kind: "data",
+        payload: msg,
+        timestamp: Date.now(),
+        id: `m-${Date.now()}`,
+      })
+    ) {
+      return true;
+    }
     if (this.pool && this.pool.sendToPeer && this.pool.sendToPeer(peerId, { type: "send", peerId, channel: "default", msg })) {
       return true;
     }
@@ -151,9 +191,28 @@ export class McpHandler {
       async (args) => {
         const peerId = String(args.peerId);
         this.peers.set(peerId, { joinedAt: Date.now() });
-        const offer = this.signaling.createOffer(peerId, String(args.label ?? ""));
+
+        let offer: any = null;
+        let transport = "ws-relay";
+
+        if (this.webrtc?.connect) {
+          // Conexión real: RTCPeerConnection + DataChannel en el hilo principal
+          offer = await this.webrtc.connect(peerId, {
+            iceServers: Array.isArray(args.iceServers) ? (args.iceServers as any[]) : undefined,
+            dataChannels: (args.dataChannels as string[])?.length ? (args.dataChannels as string[]) : undefined,
+          });
+          transport = "datachannel";
+          // Relay del offer al peer destino si es un peer WebSocket conectado
+          if (this.wsServer && offer?.sdp) {
+            this.wsServer.relayToPeer(peerId, { type: "offer", from: "host", to: peerId, sdp: offer.sdp } as any);
+          }
+        } else {
+          // Fallback: offer simbólico vía signaling server
+          offer = this.signaling.createOffer(peerId, String(args.label ?? ""));
+        }
+
         return {
-          content: [{ type: "text", text: JSON.stringify({ peerId, offer }) }],
+          content: [{ type: "text", text: JSON.stringify({ peerId, transport, offer }) }],
         };
       },
     );
@@ -172,6 +231,9 @@ export class McpHandler {
       async (args) => {
         const peerId = String(args.peerId);
         this.peers.delete(peerId);
+        // Cerrar la PC real (hilo principal) y liberar del pool si estaba asignado
+        this.webrtc?.disconnect(peerId);
+        this.pool?.release?.(peerId);
         return {
           content: [{ type: "text", text: JSON.stringify({ peerId, status: "disconnected" }) }],
         };
@@ -312,6 +374,7 @@ export class McpHandler {
           id,
           connectedAt: info.joinedAt,
           uptimeMs: Date.now() - info.joinedAt,
+          webrtc: this.webrtc?.state(id) ?? null,
         }));
         return { content: [{ type: "text", text: JSON.stringify({ peers: list, count: list.length }) }] };
       },
@@ -333,7 +396,17 @@ export class McpHandler {
           return { content: [{ type: "text", text: JSON.stringify({ error: "peer not found" }) }], isError: true };
         }
         return {
-          content: [{ type: "text", text: JSON.stringify({ peerId, joinedAt: info.joinedAt }) }],
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                peerId,
+                joinedAt: info.joinedAt,
+                webrtc: this.webrtc?.state(peerId) ?? null,
+                rooms: this.rooms.getPeerRooms(peerId).map((r) => r.id),
+              }),
+            },
+          ],
         };
       },
     );
@@ -473,14 +546,18 @@ export class McpHandler {
         required: ["to", "type"],
       },
       async (args) => {
-        const signal: SignalMessage = {
-          type: args.type as any,
-          from: "relay",
-          to: String(args.to),
-          room: String(args.room ?? ""),
-          sdp: String(args.sdp ?? ""),
-        };
-        return { content: [{ type: "text", text: JSON.stringify({ relayed: true, to: args.to }) }] };
+        const to = String(args.to);
+        let relayed = false;
+
+        // Si hay conexión WebRTC activa con el peer, la señal (SDP/ICE) va al manager
+        if (this.webrtc && to) {
+          relayed = await this.webrtc.signal(to, {
+            sdp: args.sdp as any,
+            candidate: args.candidate as any,
+          });
+        }
+
+        return { content: [{ type: "text", text: JSON.stringify({ relayed, to }) }] };
       },
     );
 

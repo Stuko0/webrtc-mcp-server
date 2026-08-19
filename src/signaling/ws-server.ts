@@ -219,8 +219,13 @@ export class WsSignalingServer {
 
     const delivered = this.relayToPeer(to, signal);
     if (!delivered) {
-      logger.warn("ws signal target not found", { from: peer.peerId, to });
-      this._sendError(peer.ws, `Peer not found: ${to}`);
+      // El destino no es un peer WS → puede ser el cliente MCP (host) u otro peer
+      if (this.onUndelivered) {
+        this.onUndelivered(signal);
+      } else {
+        logger.warn("ws signal target not found", { from: peer.peerId, to });
+        this._sendError(peer.ws, `Peer not found: ${to}`);
+      }
     }
   }
 

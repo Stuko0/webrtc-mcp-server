@@ -22,6 +22,8 @@ export class WebRTCTransport {
   private _connectedAt = 0;
   private wrtc: ReturnType<typeof loadWebRTC>;
   private iceServers: wrtc.RTCIceServer[];
+  /** Candidates remotos recibidos antes de que exista la PC (trickle ICE). */
+  private pendingCandidates: wrtc.RTCIceCandidateInit[] = [];
 
   constructor(peerId: string, iceServers: wrtc.RTCIceServer[], callbacks: TransportCallbacks) {
     this.peerId = peerId;
@@ -40,6 +42,7 @@ export class WebRTCTransport {
     for (const label of dataChannelLabels) this._createDC(label);
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
+    this._drainCandidates();
     return offer;
   }
 
@@ -50,6 +53,7 @@ export class WebRTCTransport {
     await this.pc.setRemoteDescription(new this.wrtc.RTCSessionDescription(offer));
     const answer = await this.pc.createAnswer();
     await this.pc.setLocalDescription(answer);
+    this._drainCandidates();
     return answer;
   }
 
@@ -57,11 +61,15 @@ export class WebRTCTransport {
   async acceptAnswer(answer: wrtc.RTCSessionDescriptionInit): Promise<void> {
     if (!this.pc) throw new Error("No PC");
     await this.pc.setRemoteDescription(new this.wrtc.RTCSessionDescription(answer));
+    this._drainCandidates();
   }
 
-  /** Agregar ICE candidate remoto. */
+  /** Agregar ICE candidate remoto (bufferizado si la PC o el remote SDP aún no existen). */
   async addIceCandidate(candidate: wrtc.RTCIceCandidateInit): Promise<void> {
-    if (!this.pc) throw new Error("No PC");
+    if (!this.pc || !this.pc.remoteDescription) {
+      this.pendingCandidates.push(candidate);
+      return;
+    }
     await this.pc.addIceCandidate(new this.wrtc.RTCIceCandidate(candidate));
   }
 
@@ -94,6 +102,17 @@ export class WebRTCTransport {
   }
 
   // ─── Privado ────────────────────────────────────────────────
+
+  /** Aplicar candidates remotos bufferizados una vez que la PC existe. */
+  private _drainCandidates(): void {
+    const q = this.pendingCandidates;
+    this.pendingCandidates = [];
+    for (const c of q) {
+      this.pc.addIceCandidate(new this.wrtc.RTCIceCandidate(c)).catch((err: any) => {
+        logger.warn("drain candidate failed", { peer: this.peerId, error: String(err) });
+      });
+    }
+  }
 
   private _createPC(): any {
     const pc = new this.wrtc.RTCPeerConnection({ iceServers: this.iceServers });

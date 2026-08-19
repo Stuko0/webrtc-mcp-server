@@ -5,6 +5,7 @@ import { WsSignalingServer } from "./signaling/ws-server.js";
 import { RoomManager } from "./signaling/room.js";
 import { McpHandler } from "./mcp-handler.js";
 import { WorkerPool } from "./workers/pool.js";
+import { WebRTCConnectionManager } from "./webrtc/manager.js";
 import { createLogger } from "./utils/logger.js";
 
 const logger = createLogger("webrtc-mcp");
@@ -24,18 +25,25 @@ async function main(): Promise<void> {
   // Handler de tools MCP
   const handler = new McpHandler(signaling, rooms, wsServer);
 
+  // ── WebRTC real (hilo principal) ────────────────────────
+  // @roamhq/wrtc no es thread-safe: las RTCPeerConnection viven aquí, no en workers.
+  const webrtc = new WebRTCConnectionManager(config.iceServers as any, {
+    onMessage: (peerId, msg) => handler.onInboundMessage({ from: peerId, data: msg }),
+    onIceCandidate: (peerId, candidate) => {
+      if (wsServer) {
+        wsServer.relayToPeer(peerId, { type: "ice_candidate", from: "host", to: peerId, candidate } as any);
+      }
+    },
+    onStateChange: (peerId, state) => logger.debug("webrtc peer state", { peerId, state }),
+  });
+  handler.setWebRTCManager(webrtc);
+
   // ── Worker Pool (no bloqueante) ────────────────────────
   const pool = new WorkerPool(config);
   pool.start((workerId, msg) => {
     switch (msg.type) {
       case "connected":
         logger.info("peer connected", { peerId: msg.peerId, workerId });
-        break;
-      case "ice":
-        signaling.routeIceCandidate(String(msg.peerId), msg.candidate as any);
-        break;
-      case "message":
-        // Reenviar DataChannel messages al handler MCP
         break;
       case "error":
         logger.error("worker error", { peerId: msg.peerId, error: msg.error });
@@ -125,7 +133,7 @@ async function handleMcpRequest(request: any, handler: McpHandler, config: any):
         },
         serverInfo: {
           name: "webrtc-mcp-server",
-          version: "0.4.0",
+          version: "0.5.0",
         },
       },
     });
