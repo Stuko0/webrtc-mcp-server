@@ -1,17 +1,17 @@
 # WebRTC MCP Server — Roadmap de Mejora
 
-## Estado actual: v0.4.0 (29/07/2026)
+## Estado actual: v0.5.0 (19/08/2026)
 
 | Componente | Estado |
 |---|---|
 | MCP Protocol Handler | ✅ Completo (v2025-03-26) |
-| Peer Communication (DataChannels) | ✅ Completo |
+| Peer Communication (DataChannels) | ✅ Completo — conexiones WebRTC REALES en hilo principal (WebRTCConnectionManager) |
 | Rooms (join/leave/broadcast) | ✅ Completo |
-| WebSocket Signaling | ✅ Completo |
+| WebSocket Signaling | ✅ Completo (señales host↔peer vía onUndelivered) |
 | Video Streams (FFmpeg bridge) | ✅ Completo |
-| Worker Thread Pool | ✅ Completo (8 workers) |
+| Worker Thread Pool | ⚠️ Solo tareas CPU-bound (@roamhq/wrtc no es thread-safe) |
 | Frame Cache (ring buffer) | ✅ Completo |
-| Tests | ✅ 14/14 passing |
+| Tests | ✅ 18/18 passing |
 
 ---
 
